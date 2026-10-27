@@ -1,0 +1,21 @@
+{
+  "id": "/jung-jian.github.io/",
+  "name": "Defisit Tracker Pro",
+  "short_name": "Defisit Tracker",
+  "description": "Tracker kalori, aktivitas, dan progres berat badan.",
+  "lang": "id-ID",
+  "start_url": "/jung-jian.github.io/",
+  "scope": "/jung-jian.github.io/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f5f4ec",
+  "theme_color": "#315d45",
+  "icons": [
+    {
+      "src": "/jung-jian.github.io/icons/app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
