@@ -2,7 +2,12 @@
 <html lang="id">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="theme-color" content="#f5f4ec"><meta name="description" content="Defisit Tracker Pro — sporty minimalis calorie and fitness tracker">
+<meta name="theme-color" content="#315d45"><meta name="description" content="Defisit Tracker Pro — sporty minimalis calorie and fitness tracker">
+<link rel="manifest" href="/jung-jian.github.io/manifest.json">
+<link rel="icon" href="/jung-jian.github.io/icons/app-icon.svg" type="image/svg+xml">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Defisit Tracker Pro">
 <title>Defisit Tracker Pro</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap');
@@ -134,4 +139,5 @@ $('headerLogout').addEventListener('click',async()=>{if(!sb)return;const {error}
 if(sb){sb.auth.getSession().then(({data,error})=>{if(error)console.error(error);const user=data?.session?.user;if(user){currentUser=user;setAuthUI(user);loadCloudData(user).then(()=>setGateVisible(false))}else{setAuthUI(null);authReady=true;setGateVisible(true)}});sb.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_IN'&&session?.user&&session.user.id!==currentUser?.id){currentUser=session.user;setAuthUI(currentUser);loadCloudData(currentUser).then(()=>setGateVisible(false))}else if(event==='SIGNED_OUT'){currentUser=null;authReady=false;setAuthUI(null);setGateVisible(true)}})}else{setCloudStatus('BELUM SIAP','Supabase SDK gagal dimuat. Periksa koneksi internet lalu refresh.');setGateVisible(true)}
 
 render();
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('/jung-jian.github.io/service-worker.js').catch(err=>console.warn('PWA service worker registration failed:',err));});}
 </script></body></html>
