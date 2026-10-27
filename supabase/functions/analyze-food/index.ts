@@ -27,6 +27,7 @@ serve(async (req) => {
     const body = await req.json();
     const imageBase64 = body?.imageBase64;
     const mimeType = body?.mimeType;
+    const description = typeof body?.description === "string" ? body.description.trim().slice(0, 500) : "";
 
     if (typeof imageBase64 !== "string" || imageBase64.length < 100) {
       return jsonResponse({ error: "Foto tidak valid. Coba ambil foto lagi." }, 400);
@@ -40,6 +41,8 @@ serve(async (req) => {
 
     const prompt = `Analisis foto makanan ini untuk aplikasi pencatatan kalori pribadi berbahasa Indonesia.
 Identifikasi makanan yang terlihat dan perkirakan porsi yang masuk akal dari gambar. Berikan estimasi kalori total untuk makanan yang tampak, bukan kebutuhan kalori harian.
+Keterangan tambahan dari pengguna: ${description || "Tidak ada keterangan tambahan."}
+Gunakan keterangan pengguna sebagai konteks untuk mengenali bahan, cara memasak, ukuran porsi, saus, minyak, atau komponen yang mungkin sulit dilihat. Cocokkan keterangan dengan foto; bila ada pertentangan, jelaskan ketidakpastian secara singkat dan jangan menganggap hal yang tidak didukung gambar sebagai kepastian.
 Jangan mengklaim presisi tinggi: foto tidak selalu menunjukkan berat, minyak, bahan tersembunyi, atau ukuran sebenarnya. Jika makanan/porsi sulit dikenali, nyatakan ketidakpastian dalam note dan gunakan estimasi konservatif.
 Balas HANYA JSON valid dengan struktur:
 {"foodName":"nama makanan ringkas dalam bahasa Indonesia","calories":number,"portion":"perkiraan porsi singkat","note":"catatan ketidakpastian singkat"}
