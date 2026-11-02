@@ -94,14 +94,46 @@ serve(async (req) => {
       },
       required: ["reply","items","totalCalories","note"],
     };
-    const gemini = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + encodeURIComponent(apiKey), {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ system_instruction: { parts }, contents, generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.3 } }),
-    });
-    const payload = await gemini.json().catch(() => ({}));
+    // Bound each upstream call so a slow Gemini response cannot consume the
+    // entire Supabase Edge Function wall-clock budget (150s on Free).
+    const requestGemini = async (model: string, attempts = 2) => {
+      const endpoint = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + encodeURIComponent(apiKey);
+      const requestBody = JSON.stringify({ system_instruction: { parts }, contents, generationConfig: { responseMimeType: "application/json", responseSchema: schema } });
+      let response: Response | null = null;
+      let payload: any = {};
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 22000);
+        try {
+          response = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: requestBody, signal: controller.signal });
+          payload = await response.json().catch(() => ({}));
+        } catch (error) {
+          const timedOut = controller.signal.aborted;
+          console.warn("Gemini request failed", model, timedOut ? "timeout" : String(error));
+          response = new Response(JSON.stringify({ error: { message: timedOut ? "Gemini request timed out." : "Gemini request failed." } }), { status: 504 });
+          payload = { error: { message: timedOut ? "Gemini request timed out." : "Gemini request failed." } };
+        } finally {
+          clearTimeout(timeout);
+        }
+        if (response.ok || ![429, 500, 502, 503, 504].includes(response.status) || attempt === attempts - 1) break;
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+      return { response: response!, payload };
+    };
+    let { response: gemini, payload } = await requestGemini("gemini-3.8-flash", 2);
+    if (!gemini.ok && [429, 500, 502, 503, 504].includes(gemini.status)) {
+      console.warn("Primary Gemini model unavailable; trying one bounded fallback", gemini.status);
+      const fallback = await requestGemini("gemini-3.5-flash-lite", 1);
+      gemini = fallback.response;
+      payload = fallback.payload;
+    }
     if (!gemini.ok) {
       console.error("Gemini error", gemini.status, payload?.error?.message);
-      return reply({ error: gemini.status === 429 ? "Batas penggunaan Gemini tercapai. Coba lagi nanti." : "Gemini belum bisa memproses pesan ini. Coba lagi." }, gemini.status === 429 ? 429 : 502);
+      const status = gemini.status === 429 ? 429 : 502;
+      const message = [429, 503, 504].includes(gemini.status)
+        ? "Layanan Gemini sedang padat. Tunggu sebentar, lalu coba lagi."
+        : "Gemini belum bisa memproses pesan ini. Coba lagi.";
+      return reply({ error: message }, status);
     }
     const raw = payload?.candidates?.[0]?.content?.parts?.map((p: any) => p.text || "").join("") || "";
     let result: any;
@@ -113,7 +145,6 @@ serve(async (req) => {
     const totalCalories = items.reduce((sum: number, x: any) => sum + x.calories, 0);
     const assistantText = trimText(result.reply, 2500) || "Ini estimasi yang bisa gue bantu hitung.";
     const newHistory = [...history, { role: "user", text: input || "[Foto makanan]" }, { role: "model", text: assistantText }].slice(-MAX_ACTIVE_MESSAGES);
-    // Compact older turns into a small rolling summary, never send the full archive.
     let summary = trimText(session?.memory_summary, 1800);
     const priorCount = Array.isArray(session?.messages) ? session.messages.length : 0;
     if (priorCount + 2 > MAX_ACTIVE_MESSAGES) {
