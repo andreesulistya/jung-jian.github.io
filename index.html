@@ -85,13 +85,8 @@ const $=id=>document.getElementById(id);
 const localISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
 const fmt=n=>Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:1});
 const money=n=>fmt(Math.round(n));
-const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-const LEGACY_KEY='defisitTrackerPro_v1';
-const USER_KEY_PREFIX='defisitTrackerPro_user_';
-const LEGACY_OWNER_EMAIL='xandreejung@gmail.com';
-const userStorageKey=userId=>USER_KEY_PREFIX+userId;
-const emptyState=()=>({logs:[],riwayatFisik:[],profile:{}});
-const validTrackerState=value=>value&&Array.isArray(value.logs)&&Array.isArray(value.riwayatFisik);
+const uid=()=>window.crypto?.randomUUID?.()||'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{const r=Math.random()*16|0;return(c==='x'?r:(r&0x3|0x8)).toString(16)});
+const emptyState=()=>({logs:[],riwayatFisik:[],profile:{},dailyTdee:{}});
 const SUPABASE_URL='https://wkfwmvbszhogxjjwinca.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_lkEBHTJM00JIpsmBpRfZdQ_uT6EWFz1';
 let sb=null, currentUser=null, cloudBusy=false, cloudQueue=Promise.resolve(), authReady=false;
@@ -99,7 +94,7 @@ try{if(window.supabase?.createClient)sb=window.supabase.createClient(SUPABASE_UR
 
 let state=emptyState();
 let logPage=1,recapPage=1,physicalPage=1,logTypeTab="in",editingLog=null,editingPhysical=null;
-function persist(){if(!currentUser){notify('Login diperlukan untuk menyimpan data.');return}localStorage.setItem(userStorageKey(currentUser.id),JSON.stringify(state));render();if(authReady)queueCloudSync()}
+function persist(){if(!currentUser){notify('Login diperlukan untuk menyimpan data.');return}render();if(authReady)return queueCloudSync()}
 function notify(msg){const el=$('toast');el.textContent=msg;el.style.display='block';clearTimeout(window._toastTimer);window._toastTimer=setTimeout(()=>el.style.display='none',2400)}
 function dateLabel(iso){if(!iso)return'—';const [y,m,d]=iso.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'})}
 function sums(date){const rows=state.logs.filter(x=>x.date===date);const incoming=rows.filter(x=>x.type==='in').reduce((a,x)=>a+Number(x.calories),0);const outgoing=rows.filter(x=>x.type==='out').reduce((a,x)=>a+Number(x.calories),0);return{rows,incoming,outgoing,net:incoming-outgoing}}function getSurplusRecoveryData(){
@@ -242,7 +237,7 @@ function editPhysical(id){const p=state.riwayatFisik.find(x=>x.id===id);if(!p)re
 function deletePhysical(id){if(confirm('Hapus catatan fisik ini?')){state.riwayatFisik=state.riwayatFisik.filter(p=>p.id!==id);persist();renderPhysicalHistory();renderProfile();updatePhysicalSummary();notify('Riwayat fisik dihapus')}}
 $('exportBtn').addEventListener('click',()=>{const blob=new Blob([JSON.stringify({...state,exportedAt:new Date().toISOString(),schemaVersion:1},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='defisit-tracker-backup-'+localISO()+'.json';a.click();URL.revokeObjectURL(url);notify('Backup JSON berhasil dibuat')});
 $('importBtn').addEventListener('click',()=>$('importFile').click());
-$('importFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.logs)||!Array.isArray(data.riwayatFisik))throw Error('Format backup tidak sesuai.');if(!confirm('Import akan mengganti semua data saat ini. Lanjutkan?'))return;state={logs:data.logs.map(x=>({...x,id:String(x.id||uid()),calories:Number(x.calories)})),riwayatFisik:data.riwayatFisik.map(p=>({...p,id:String(p.id||uid()),...calculate(p)})),profile:data.profile||{}};persist();resetLogForm();resetPhysicalForm();logPage=1;render();notify('Data berhasil diimpor')}catch(err){notify('Gagal import: file JSON tidak valid.')}finally{e.target.value=''}});
+$('importFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const data=JSON.parse(await file.text());if(!data||!Array.isArray(data.logs)||!Array.isArray(data.riwayatFisik))throw Error('Format backup tidak sesuai.');if(!confirm('Import akan mengganti semua data saat ini. Lanjutkan?'))return;state={logs:data.logs.map(x=>({...x,id:String(x.id||uid()),calories:Number(x.calories)})),riwayatFisik:data.riwayatFisik.map(p=>{const c=calculate(p);return{...c,...p,id:String(p.id||uid()),bmr:Number(p.bmr)||c.bmr,tdee:Number(p.tdee)||c.tdee,ideal:Number(p.ideal)||c.ideal}}),profile:data.profile||{},dailyTdee:data.dailyTdee&&typeof data.dailyTdee==='object'?data.dailyTdee:{}};persist();resetLogForm();resetPhysicalForm();logPage=1;render();notify('Data berhasil diimpor')}catch(err){notify('Gagal import: file JSON tidak valid.')}finally{e.target.value=''}});
 /* Horizontal swipe navigation: ignore vertical scrolling and interactive elements. */
 let touchStart=null;const pageOrder=['dashboard','assistant','log','surplus','calculator','profile'];document.addEventListener('touchstart',e=>{if(e.touches.length===1)touchStart={x:e.touches[0].clientX,y:e.touches[0].clientY}},{passive:true});document.addEventListener('touchend',e=>{if(!touchStart)return;const dx=e.changedTouches[0].clientX-touchStart.x,dy=e.changedTouches[0].clientY-touchStart.y;touchStart=null;if(Math.abs(dx)<100||Math.abs(dy)>80||Math.abs(dx)<Math.abs(dy)*1.2)return;if(e.target.closest('input,select,button,textarea,a'))return;const idx=pageOrder.indexOf(window.currentPage||'dashboard');if(dx<0&&idx<5)navigate(pageOrder[idx+1]);else if(dx>0&&idx>0)navigate(pageOrder[idx-1])},{passive:true});
 
@@ -251,43 +246,71 @@ function setGateVisible(show){$('authGate').hidden=!show;$('sessionLoader').hidd
 function gateMessage(message){$('gateMessage').textContent=message}
 function setAuthUI(user){currentUser=user||null;$('headerLogout').style.display=user?'inline-block':'none';if(user)setCloudStatus('TERHUBUNG','Login sebagai '+(user.email||'akun pengguna')+'. Data tersinkron ke cloud.');else setCloudStatus('LOKAL','Belum login.')}
 async function cloudRequest(promise){const {data,error}=await promise;if(error)throw error;return data}
-async function loadCloudData(user){cloudBusy=true;authReady=false;setCloudStatus('MEMUAT','Mengambil data akun dari cloud…');try{
- const [logs,weights,profiles]=await Promise.all([
+async function loadCloudData(user){
+ cloudBusy=true;authReady=false;state=emptyState();render();setCloudStatus('MEMUAT','Mengambil data akun dari cloud…');
+ try{
+  const [logs,weights,dailyRows,profiles]=await Promise.all([
+   cloudRequest(sb.from('calorie_logs').select('*').eq('user_id',user.id)),
+   cloudRequest(sb.from('weight_history').select('*').eq('user_id',user.id)),
+   cloudRequest(sb.from('daily_tdee').select('*').eq('user_id',user.id)),
+   cloudRequest(sb.from('profiles').select('*').eq('id',user.id).maybeSingle())
+  ]);
+  state.logs=logs.map(x=>{
+   let meta={};try{meta=x.notes?JSON.parse(x.notes):{}}catch(e){}
+   return{id:x.id,date:x.log_date,name:x.item_name,type:x.entry_type==='exercise'?'out':'in',calories:Number(x.calories||0),isExtra:meta.isExtra===true,createdAt:new Date(x.created_at||x.log_date).getTime()};
+  });
+  state.riwayatFisik=weights.map(x=>{
+   let saved={};try{saved=x.notes?JSON.parse(x.notes):{}}catch(e){}
+   const p={id:x.id,date:x.recorded_on,weight:Number(x.weight_kg),gender:saved.gender||profiles?.sex||'male',age:Number(saved.age)||30,height:Number(saved.height||profiles?.height_cm||170),activity:Number(saved.activity)||1.2,bmr:Number(saved.bmr)||0,tdee:Number(saved.tdee)||0,ideal:Number(saved.ideal)||0,createdAt:new Date(x.created_at||x.recorded_on).getTime()};
+   const calculated=calculate(p);
+   return{...p,bmr:p.bmr||calculated.bmr,tdee:p.tdee||calculated.tdee,ideal:p.ideal||calculated.ideal};
+  });
+  if(profiles&&state.riwayatFisik.length===0&&profiles.current_weight_kg){
+   const p={id:uid(),date:localISO(),gender:profiles.sex||'male',age:profiles.birth_date?Math.max(1,Math.floor((Date.now()-new Date(profiles.birth_date).getTime())/31557600000)):30,weight:Number(profiles.current_weight_kg),height:Number(profiles.height_cm||170),activity:1.2,createdAt:Date.now()};
+   Object.assign(p,calculate(p));state.riwayatFisik=[p];
+  }
+  state.dailyTdee=Object.fromEntries(dailyRows.map(x=>[x.log_date,Number(x.tdee)]));
+  state.profile=profiles||{};
+  for(const date of [...new Set(state.logs.map(x=>x.date))])tdeeForDate(date);
+  render();
+  setCloudStatus('CLOUD SYNC','Data akun berhasil dimuat dari database.');
+  await syncCloudNow(true);
+ }catch(err){
+  console.error(err);state=emptyState();render();
+  setCloudStatus('GAGAL SYNC','Tidak bisa memuat data cloud: '+(err.message||'periksa konfigurasi tabel dan RLS'));
+  notify('Data cloud gagal dimuat. Coba login ulang setelah koneksi pulih.');
+  throw err;
+ }finally{cloudBusy=false;authReady=true}
+}
+async function syncCloudNow(allowBusy=false){
+ if(!sb||!currentUser||(cloudBusy&&!allowBusy))return;
+ const user=currentUser;
+ const [existingLogs,existingWeights,existingDaily]=await Promise.all([
   cloudRequest(sb.from('calorie_logs').select('*').eq('user_id',user.id)),
   cloudRequest(sb.from('weight_history').select('*').eq('user_id',user.id)),
-  cloudRequest(sb.from('profiles').select('*').eq('id',user.id).maybeSingle())
+  cloudRequest(sb.from('daily_tdee').select('*').eq('user_id',user.id))
  ]);
- const accountKey=userStorageKey(user.id);
- let cached=null;try{const parsed=JSON.parse(localStorage.getItem(accountKey)||'null');if(validTrackerState(parsed))cached=parsed}catch(e){}
- const isLegacyOwner=String(user.email||'').toLowerCase()===LEGACY_OWNER_EMAIL;
- let legacy=null;
- if(isLegacyOwner){try{const parsed=JSON.parse(localStorage.getItem(LEGACY_KEY)||'null');if(validTrackerState(parsed))legacy=parsed}catch(e){}}
- if(logs.length||weights.length){
-  state.logs=logs.map(x=>{let meta={};try{meta=x.notes?JSON.parse(x.notes):{}}catch(e){}return{id:x.id,date:x.log_date,name:x.item_name,type:x.entry_type==='exercise'?'out':'in',calories:Number(x.calories||0),isExtra:meta.isExtra===true,createdAt:new Date(x.created_at||x.log_date).getTime()}});
-  state.riwayatFisik=weights.map(x=>{let saved={};try{saved=x.notes?JSON.parse(x.notes):{}}catch(e){}const p={id:x.id,date:x.recorded_on,weight:Number(x.weight_kg),gender:saved.gender||profiles?.sex||'male',age:Number(saved.age)||(profiles?.birth_date?Math.max(1,Math.floor((Date.now()-new Date(profiles.birth_date).getTime())/31557600000)):30),height:Number(saved.height||profiles?.height_cm||170),activity:Number(saved.activity||profiles?.activity_level||1.2),bmr:Number(saved.bmr)||0,tdee:Number(saved.tdee)||0,ideal:Number(saved.ideal)||0,createdAt:new Date(x.created_at||x.recorded_on).getTime()};return {...p,...calculate(p)}});
-  if(profiles&&state.riwayatFisik.length===0&&profiles.current_weight_kg){const p={id:uid(),date:localISO(),gender:profiles.sex||'male',age:profiles.birth_date?Math.max(1,Math.floor((Date.now()-new Date(profiles.birth_date).getTime())/31557600000)):30,weight:Number(profiles.current_weight_kg),height:Number(profiles.height_cm||170),activity:Number(profiles.activity_level||1.2),createdAt:Date.now()};Object.assign(p,calculate(p));state.riwayatFisik=[p]}
-  state.profile=profiles||{};
-  localStorage.setItem(accountKey,JSON.stringify(state));render();setCloudStatus('CLOUD SYNC','Data akun berhasil dimuat dari cloud.')
- }else{
-  state=cached||((isLegacyOwner&&legacy)?legacy:emptyState());
-  state.profile=profiles||state.profile||{};
-  localStorage.setItem(accountKey,JSON.stringify(state));
-  if(state.logs.length||state.riwayatFisik.length){await syncCloudNow();setCloudStatus('CLOUD SYNC',isLegacyOwner&&legacy&&!cached?'Data lama berhasil dipindahkan ke akun ini.':'Data lokal akun berhasil disinkronkan.')}
-  else{render();setCloudStatus('CLOUD SYNC','Akun baru siap. Belum ada data tracker.')}
- }
- render();
- }catch(err){console.error(err);setCloudStatus('GAGAL SYNC','Tidak bisa memuat data cloud: '+(err.message||'periksa konfigurasi tabel dan RLS'));notify('Sinkronisasi gagal. Periksa koneksi atau konfigurasi Supabase.')}finally{cloudBusy=false;authReady=true}}
-async function syncCloudNow(){if(!sb||!currentUser||cloudBusy)return;const user=currentUser;
- const {error:delLogs}=await sb.from('calorie_logs').delete().eq('user_id',user.id);if(delLogs)throw delLogs;
- const logRows=state.logs.map(x=>({user_id:user.id,log_date:x.date,entry_type:x.type==='out'?'exercise':'food',item_name:x.name,calories:Number(x.calories)||0,notes:x.type==='out'&&x.isExtra===true?JSON.stringify({isExtra:true}):null}));
- if(logRows.length){const {error}=await sb.from('calorie_logs').insert(logRows);if(error)throw error}
- const {error:delWeights}=await sb.from('weight_history').delete().eq('user_id',user.id);if(delWeights)throw delWeights;
- const weightRows=state.riwayatFisik.map(p=>({user_id:user.id,recorded_on:p.date,weight_kg:Number(p.weight),notes:JSON.stringify({gender:p.gender,age:Number(p.age),height:Number(p.height),activity:Number(p.activity),bmr:Number(p.bmr),tdee:Number(p.tdee),ideal:Number(p.ideal)})}));
- if(weightRows.length){const {error}=await sb.from('weight_history').insert(weightRows);if(error)throw error}
- const p=latestPhysical();if(p){const {error}=await sb.from('profiles').upsert({id:user.id,sex:p.gender,birth_date:null,height_cm:Number(p.height),current_weight_kg:Number(p.weight),activity_level:Number(p.activity),updated_at:new Date().toISOString()},{onConflict:'id'});if(error)throw error}
- setCloudStatus('CLOUD SYNC','Data terakhir berhasil disinkronkan ke akun ini.')
+ const logRows=state.logs.map(x=>({id:x.id,user_id:user.id,log_date:x.date,entry_type:x.type==='out'?'exercise':'food',item_name:x.name,calories:Number(x.calories)||0,notes:x.isExtra===true?JSON.stringify({isExtra:true}):null,created_at:new Date(x.createdAt||Date.now()).toISOString()}));
+ const oldLogMap=new Map(existingLogs.map(x=>[x.id,x]));
+ const changedLogs=logRows.filter(x=>{const old=oldLogMap.get(x.id);return !old||old.log_date!==x.log_date||old.entry_type!==x.entry_type||old.item_name!==x.item_name||Number(old.calories)!==x.calories||(old.notes||null)!==(x.notes||null)||new Date(old.created_at).getTime()!==new Date(x.created_at).getTime()});
+ if(changedLogs.length){const {error}=await sb.from('calorie_logs').upsert(changedLogs,{onConflict:'id'});if(error)throw error}
+ const logIds=new Set(logRows.map(x=>x.id)),staleLogIds=existingLogs.filter(x=>!logIds.has(x.id)).map(x=>x.id);
+ if(staleLogIds.length){const {error}=await sb.from('calorie_logs').delete().eq('user_id',user.id).in('id',staleLogIds);if(error)throw error}
+ const weightRows=state.riwayatFisik.map(p=>({id:p.id,user_id:user.id,recorded_on:p.date,weight_kg:Number(p.weight),notes:JSON.stringify({gender:p.gender,age:Number(p.age),height:Number(p.height),activity:Number(p.activity),bmr:Number(p.bmr),tdee:Number(p.tdee),ideal:Number(p.ideal)}),created_at:new Date(p.createdAt||Date.now()).toISOString()}));
+ const oldWeightMap=new Map(existingWeights.map(x=>[x.id,x]));
+ const changedWeights=weightRows.filter(x=>{const old=oldWeightMap.get(x.id);return !old||old.recorded_on!==x.recorded_on||Number(old.weight_kg)!==x.weight_kg||(old.notes||null)!==(x.notes||null)||new Date(old.created_at).getTime()!==new Date(x.created_at).getTime()});
+ if(changedWeights.length){const {error}=await sb.from('weight_history').upsert(changedWeights,{onConflict:'id'});if(error)throw error}
+ const weightIds=new Set(weightRows.map(x=>x.id)),staleWeightIds=existingWeights.filter(x=>!weightIds.has(x.id)).map(x=>x.id);
+ if(staleWeightIds.length){const {error}=await sb.from('weight_history').delete().eq('user_id',user.id).in('id',staleWeightIds);if(error)throw error}
+ const dailyRows=Object.entries(state.dailyTdee||{}).filter(([date,value])=>Number(value)>0).map(([date,value])=>({user_id:user.id,log_date:date,tdee:Math.round(Number(value))}));
+ const oldDailyMap=new Map(existingDaily.map(x=>[x.log_date,x]));
+ const changedDaily=dailyRows.filter(x=>{const old=oldDailyMap.get(x.log_date);return !old||Number(old.tdee)!==x.tdee});
+ if(changedDaily.length){const {error}=await sb.from('daily_tdee').upsert(changedDaily,{onConflict:'user_id,log_date'});if(error)throw error}
+ const dailyDates=new Set(dailyRows.map(x=>x.log_date)),staleDates=existingDaily.filter(x=>!dailyDates.has(x.log_date)).map(x=>x.log_date);
+ if(staleDates.length){const {error}=await sb.from('daily_tdee').delete().eq('user_id',user.id).in('log_date',staleDates);if(error)throw error}
+ setCloudStatus('CLOUD SYNC','Semua perubahan data tersimpan di database akun ini.');
 }
-function queueCloudSync(){cloudQueue=cloudQueue.then(async()=>{if(!currentUser||!authReady||cloudBusy)return;try{await syncCloudNow()}catch(err){console.error(err);setCloudStatus('SYNC ERROR','Data lokal tersimpan, tetapi cloud sync gagal: '+(err.message||'error'));}});return cloudQueue}
+function queueCloudSync(){cloudQueue=cloudQueue.then(async()=>{if(!currentUser||!authReady||cloudBusy)return;try{await syncCloudNow()}catch(err){console.error(err);setCloudStatus('SYNC ERROR','Perubahan belum tersimpan ke database: '+(err.message||'error'));notify('Sinkronisasi gagal. Periksa koneksi, lalu coba simpan kembali.')}});return cloudQueue}
 async function authAction(kind,fromGate=false){if(!sb){gateMessage('Supabase belum siap. Periksa koneksi internet lalu muat ulang halaman.');return}const email=$(fromGate?'gateEmail':'authEmail').value.trim(),password=$(fromGate?'gatePassword':'authPassword').value;if(!email||!password){if(fromGate)gateMessage('Isi email dan password dulu.');else notify('Isi email dan password dulu.');return}if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){if(fromGate){gateMessage('Format email tidak valid. Gunakan alamat email lengkap, contoh nama@email.com.');$('gateEmail').focus()}else notify('Format email tidak valid. Gunakan alamat email lengkap.');return}if(fromGate&&kind==='signup'){$('verificationNotice').hidden=true;$('resendVerificationStatus').textContent=''}setCloudStatus('PROSES','Sedang menghubungkan akun…');try{let result;if(kind==='signup')result=await sb.auth.signUp({email,password,options:{emailRedirectTo:'https://andreesulistya.github.io/jung-jian.github.io/'} });else result=await sb.auth.signInWithPassword({email,password});if(result.error)throw result.error;if(kind==='signup'&&!result.data.session){setCloudStatus('CEK EMAIL','Registrasi berhasil. Verifikasi email sebelum login.');if(fromGate){$('verificationNotice').hidden=false;$('gateMessage').textContent='';$('gatePassword').value=''}notify('Registrasi berhasil. Cek email untuk verifikasi akun.');return}if(result.data.user){currentUser=result.data.user;setAuthUI(currentUser);await loadCloudData(currentUser);setGateVisible(false);$('gatePassword').value='';notify('Login berhasil. Selamat menggunakan tracker!')}}catch(err){console.error(err);setCloudStatus('AUTH ERROR',err.message||'Login gagal.');if(fromGate)gateMessage(err.message||'Login gagal. Periksa email dan password.');else notify(err.message||'Login gagal. Periksa email dan password.')}} 
 async function resendVerificationEmail(){const email=$('gateEmail').value.trim();const status=$('resendVerificationStatus');if(!email){status.textContent='Isi email yang digunakan saat mendaftar terlebih dahulu.';return}if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){status.textContent='Format email tidak valid. Gunakan alamat email lengkap, contoh nama@email.com.';$('gateEmail').focus();return}const button=$('resendVerificationBtn');button.disabled=true;status.textContent='Mengirim ulang email verifikasi…';try{const {error}=await sb.auth.resend({type:'signup',email,options:{emailRedirectTo:'https://andreesulistya.github.io/jung-jian.github.io/'}});if(error)throw error;status.textContent='Permintaan terkirim. Cek Inbox dan folder Spam/Promosi.'}catch(err){console.error(err);status.textContent=err.message||'Email verifikasi belum bisa dikirim. Coba lagi nanti.'}finally{button.disabled=false}}
 $('resendVerificationBtn').addEventListener('click',resendVerificationEmail); 
