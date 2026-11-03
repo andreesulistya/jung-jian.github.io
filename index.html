@@ -86,16 +86,20 @@ const localISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMo
 const fmt=n=>Number(n||0).toLocaleString('id-ID',{maximumFractionDigits:1});
 const money=n=>fmt(Math.round(n));
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
-const KEY='defisitTrackerPro_v1';
+const LEGACY_KEY='defisitTrackerPro_v1';
+const USER_KEY_PREFIX='defisitTrackerPro_user_';
+const LEGACY_OWNER_EMAIL='xandreejung@gmail.com';
+const userStorageKey=userId=>USER_KEY_PREFIX+userId;
+const emptyState=()=>({logs:[],riwayatFisik:[],profile:{}});
+const validTrackerState=value=>value&&Array.isArray(value.logs)&&Array.isArray(value.riwayatFisik);
 const SUPABASE_URL='https://wkfwmvbszhogxjjwinca.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_lkEBHTJM00JIpsmBpRfZdQ_uT6EWFz1';
 let sb=null, currentUser=null, cloudBusy=false, cloudQueue=Promise.resolve(), authReady=false;
 try{if(window.supabase?.createClient)sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY)}catch(e){console.error('Supabase init failed',e)}
 
-let state={logs:[],riwayatFisik:[],profile:{},};
-try{const saved=JSON.parse(localStorage.getItem(KEY)||'null');if(saved&&Array.isArray(saved.logs)&&Array.isArray(saved.riwayatFisik))state=saved}catch(e){}
+let state=emptyState();
 let logPage=1,recapPage=1,physicalPage=1,logTypeTab="in",editingLog=null,editingPhysical=null;
-function persist(){localStorage.setItem(KEY,JSON.stringify(state));render();if(currentUser&&authReady)queueCloudSync()}
+function persist(){if(!currentUser){notify('Login diperlukan untuk menyimpan data.');return}localStorage.setItem(userStorageKey(currentUser.id),JSON.stringify(state));render();if(authReady)queueCloudSync()}
 function notify(msg){const el=$('toast');el.textContent=msg;el.style.display='block';clearTimeout(window._toastTimer);window._toastTimer=setTimeout(()=>el.style.display='none',2400)}
 function dateLabel(iso){if(!iso)return'—';const [y,m,d]=iso.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'})}
 function sums(date){const rows=state.logs.filter(x=>x.date===date);const incoming=rows.filter(x=>x.type==='in').reduce((a,x)=>a+Number(x.calories),0);const outgoing=rows.filter(x=>x.type==='out').reduce((a,x)=>a+Number(x.calories),0);return{rows,incoming,outgoing,net:incoming-outgoing}}function getSurplusRecoveryData(){
@@ -247,18 +251,31 @@ function setGateVisible(show){$('authGate').hidden=!show;$('sessionLoader').hidd
 function gateMessage(message){$('gateMessage').textContent=message}
 function setAuthUI(user){currentUser=user||null;$('headerLogout').style.display=user?'inline-block':'none';if(user)setCloudStatus('TERHUBUNG','Login sebagai '+(user.email||'akun pengguna')+'. Data tersinkron ke cloud.');else setCloudStatus('LOKAL','Belum login.')}
 async function cloudRequest(promise){const {data,error}=await promise;if(error)throw error;return data}
-async function loadCloudData(user){cloudBusy=true;setCloudStatus('MEMUAT','Mengambil data dari cloud…');try{
+async function loadCloudData(user){cloudBusy=true;authReady=false;setCloudStatus('MEMUAT','Mengambil data akun dari cloud…');try{
  const [logs,weights,profiles]=await Promise.all([
   cloudRequest(sb.from('calorie_logs').select('*').eq('user_id',user.id)),
   cloudRequest(sb.from('weight_history').select('*').eq('user_id',user.id)),
   cloudRequest(sb.from('profiles').select('*').eq('id',user.id).maybeSingle())
  ]);
+ const accountKey=userStorageKey(user.id);
+ let cached=null;try{const parsed=JSON.parse(localStorage.getItem(accountKey)||'null');if(validTrackerState(parsed))cached=parsed}catch(e){}
+ const isLegacyOwner=String(user.email||'').toLowerCase()===LEGACY_OWNER_EMAIL;
+ let legacy=null;
+ if(isLegacyOwner){try{const parsed=JSON.parse(localStorage.getItem(LEGACY_KEY)||'null');if(validTrackerState(parsed))legacy=parsed}catch(e){}}
  if(logs.length||weights.length){
   state.logs=logs.map(x=>{let meta={};try{meta=x.notes?JSON.parse(x.notes):{}}catch(e){}return{id:x.id,date:x.log_date,name:x.item_name,type:x.entry_type==='exercise'?'out':'in',calories:Number(x.calories||0),isExtra:meta.isExtra===true,createdAt:new Date(x.created_at||x.log_date).getTime()}});
   state.riwayatFisik=weights.map(x=>{let saved={};try{saved=x.notes?JSON.parse(x.notes):{}}catch(e){}const p={id:x.id,date:x.recorded_on,weight:Number(x.weight_kg),gender:saved.gender||profiles?.sex||'male',age:Number(saved.age)||(profiles?.birth_date?Math.max(1,Math.floor((Date.now()-new Date(profiles.birth_date).getTime())/31557600000)):30),height:Number(saved.height||profiles?.height_cm||170),activity:Number(saved.activity||profiles?.activity_level||1.2),bmr:Number(saved.bmr)||0,tdee:Number(saved.tdee)||0,ideal:Number(saved.ideal)||0,createdAt:new Date(x.created_at||x.recorded_on).getTime()};return {...p,...calculate(p)}});
   if(profiles&&state.riwayatFisik.length===0&&profiles.current_weight_kg){const p={id:uid(),date:localISO(),gender:profiles.sex||'male',age:profiles.birth_date?Math.max(1,Math.floor((Date.now()-new Date(profiles.birth_date).getTime())/31557600000)):30,weight:Number(profiles.current_weight_kg),height:Number(profiles.height_cm||170),activity:Number(profiles.activity_level||1.2),createdAt:Date.now()};Object.assign(p,calculate(p));state.riwayatFisik=[p]}
-  state.profile=profiles||{};localStorage.setItem(KEY,JSON.stringify(state));render();setCloudStatus('CLOUD SYNC','Data cloud berhasil dimuat.')
- }else{cloudBusy=false;if(state.logs.length||state.riwayatFisik.length){await syncCloudNow();setCloudStatus('CLOUD SYNC','Data lokal awal sudah disinkronkan ke cloud.')}else if(profiles){state.profile=profiles;localStorage.setItem(KEY,JSON.stringify(state));setCloudStatus('CLOUD SYNC','Akun terhubung. Belum ada catatan aktivitas di cloud.')}else{await syncCloudNow();setCloudStatus('CLOUD SYNC','Akun terhubung. Data lokal awal sudah disinkronkan ke cloud.')}}
+  state.profile=profiles||{};
+  localStorage.setItem(accountKey,JSON.stringify(state));render();setCloudStatus('CLOUD SYNC','Data akun berhasil dimuat dari cloud.')
+ }else{
+  state=cached||((isLegacyOwner&&legacy)?legacy:emptyState());
+  state.profile=profiles||state.profile||{};
+  localStorage.setItem(accountKey,JSON.stringify(state));
+  if(state.logs.length||state.riwayatFisik.length){await syncCloudNow();setCloudStatus('CLOUD SYNC',isLegacyOwner&&legacy&&!cached?'Data lama berhasil dipindahkan ke akun ini.':'Data lokal akun berhasil disinkronkan.')}
+  else{render();setCloudStatus('CLOUD SYNC','Akun baru siap. Belum ada data tracker.')}
+ }
+ render();
  }catch(err){console.error(err);setCloudStatus('GAGAL SYNC','Tidak bisa memuat data cloud: '+(err.message||'periksa konfigurasi tabel dan RLS'));notify('Sinkronisasi gagal. Periksa koneksi atau konfigurasi Supabase.')}finally{cloudBusy=false;authReady=true}}
 async function syncCloudNow(){if(!sb||!currentUser||cloudBusy)return;const user=currentUser;
  const {error:delLogs}=await sb.from('calorie_logs').delete().eq('user_id',user.id);if(delLogs)throw delLogs;
@@ -276,8 +293,8 @@ async function resendVerificationEmail(){const email=$('gateEmail').value.trim()
 $('resendVerificationBtn').addEventListener('click',resendVerificationEmail); 
 $('gateAuthForm').addEventListener('submit',e=>{e.preventDefault();authAction('login',true)});
 $('gateSignUpBtn').addEventListener('click',()=>authAction('signup',true));
-$('headerLogout').addEventListener('click',async()=>{if(!sb)return;const {error}=await sb.auth.signOut();if(error){notify('Logout gagal: '+error.message);return}currentUser=null;authReady=false;setAuthUI(null);setGateVisible(true);gateMessage('Kamu sudah logout. Login lagi untuk membuka tracker.');notify('Logout berhasil.')});
-if(sb){$('sessionLoader').hidden=false;sb.auth.getSession().then(async({data,error})=>{if(error)console.error(error);const user=data?.session?.user;if(user){currentUser=user;setAuthUI(user);await loadCloudData(user);setGateVisible(false)}else{setAuthUI(null);authReady=true;setGateVisible(true)}}).catch(err=>{console.error('Session check failed:',err);setAuthUI(null);authReady=true;setGateVisible(true)});sb.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_IN'&&session?.user&&session.user.id!==currentUser?.id){currentUser=session.user;setAuthUI(currentUser);loadCloudData(currentUser).then(()=>setGateVisible(false))}else if(event==='SIGNED_OUT'){currentUser=null;authReady=false;setAuthUI(null);setGateVisible(true)}})}else{setCloudStatus('BELUM SIAP','Supabase SDK gagal dimuat. Periksa koneksi internet lalu refresh.');setGateVisible(true)}
+$('headerLogout').addEventListener('click',async()=>{if(!sb)return;const {error}=await sb.auth.signOut();if(error){notify('Logout gagal: '+error.message);return}currentUser=null;authReady=false;state=emptyState();render();setAuthUI(null);setGateVisible(true);gateMessage('Kamu sudah logout. Login lagi untuk membuka tracker.');notify('Logout berhasil.')});
+if(sb){$('sessionLoader').hidden=false;sb.auth.getSession().then(async({data,error})=>{if(error)console.error(error);const user=data?.session?.user;if(user){currentUser=user;setAuthUI(user);await loadCloudData(user);setGateVisible(false)}else{setAuthUI(null);authReady=true;setGateVisible(true)}}).catch(err=>{console.error('Session check failed:',err);setAuthUI(null);authReady=true;setGateVisible(true)});sb.auth.onAuthStateChange((event,session)=>{if(event==='SIGNED_IN'&&session?.user&&session.user.id!==currentUser?.id){currentUser=session.user;setAuthUI(currentUser);loadCloudData(currentUser).then(()=>setGateVisible(false))}else if(event==='SIGNED_OUT'){currentUser=null;authReady=false;state=emptyState();render();setAuthUI(null);setGateVisible(true)}})}else{setCloudStatus('BELUM SIAP','Supabase SDK gagal dimuat. Periksa koneksi internet lalu refresh.');setGateVisible(true)}
 
 
 /* AI Food Analyzer — one-shot analysis; no visible chat history. */
