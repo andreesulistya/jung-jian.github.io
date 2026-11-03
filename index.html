@@ -244,7 +244,40 @@ function aiShowResult(data){
  const save=document.createElement('button');save.type='button';save.className='btn primary';save.textContent='Simpan ke Catat Kalori';save.disabled=!aiPendingItems.length;save.addEventListener('click',()=>{if(!aiPendingItems.length)return;const date=localISO();aiPendingItems.forEach(x=>state.logs.push({id:uid(),date,name:x.name+(x.portion?' ('+x.portion+')':''),type:'in',calories:Number(x.calories)||0,createdAt:Date.now()}));persist();aiResetForm();notify('Hasil AI disimpan ke Catat Kalori')});
  const discard=document.createElement('button');discard.type='button';discard.className='btn soft';discard.textContent='Hapus';discard.addEventListener('click',()=>{aiResetForm();notify('Hasil analisis dihapus')});actions.append(save,discard);aiResult.appendChild(actions);aiResult.hidden=false;
 }
-async function aiPhotoPayload(file){if(!file)return null;if(file.size>5*1024*1024)throw Error('Foto maksimal 5 MB.');if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw Error('Gunakan foto JPG, PNG, atau WebP.');const dataUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(reader.result);reader.onerror=()=>reject(new Error('Browser gagal membaca file foto. Coba pilih ulang foto atau gunakan gambar yang lebih kecil.'));reader.onabort=()=>reject(new Error('Pembacaan foto dibatalkan. Coba pilih ulang foto.'));reader.readAsDataURL(file)});return{mimeType:file.type,data:String(dataUrl).split(',')[1]}}
+async function aiPhotoPayload(file){
+ if(!file)return null;
+ if(file.size>5*1024*1024)throw Error('Foto maksimal 5 MB.');
+ if(!['image/jpeg','image/png','image/webp'].includes(file.type))throw Error('Gunakan foto JPG, PNG, atau WebP.');
+ const objectUrl=URL.createObjectURL(file);
+ try{
+  const img=await new Promise((resolve,reject)=>{
+   const image=new Image();
+   image.onload=()=>resolve(image);
+   image.onerror=()=>reject(new Error('Browser gagal memproses foto. Coba pilih ulang foto JPG/PNG/WebP.'));
+   image.src=objectUrl;
+  });
+  const maxDimension=1280;
+  const scale=Math.min(1,maxDimension/Math.max(img.naturalWidth,img.naturalHeight));
+  const canvas=document.createElement('canvas');
+  canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));
+  canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
+  const ctx=canvas.getContext('2d');
+  if(!ctx)throw new Error('Browser tidak mendukung pemrosesan foto.');
+  ctx.fillStyle='#fff';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(img,0,0,canvas.width,canvas.height);
+  const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',0.78));
+  if(!blob)throw new Error('Foto gagal dikompres. Coba pilih foto lain.');
+  const dataUrl=await new Promise((resolve,reject)=>{
+   const reader=new FileReader();
+   reader.onload=()=>resolve(reader.result);
+   reader.onerror=()=>reject(new Error('Browser gagal membaca hasil foto. Coba pilih ulang foto.'));
+   reader.onabort=()=>reject(new Error('Pembacaan foto dibatalkan. Coba pilih ulang foto.'));
+   reader.readAsDataURL(blob);
+  });
+  return{mimeType:'image/jpeg',data:String(dataUrl).split(',')[1]};
+ }finally{URL.revokeObjectURL(objectUrl)}
+}
 $('aiChoosePhoto').addEventListener('click',()=>$('aiPhoto').click());
 $('aiPhoto').addEventListener('change',e=>{aiSelectedPhoto=e.target.files?.[0]||null;const preview=$('aiPhotoPreview');if(aiPhotoObjectUrl){URL.revokeObjectURL(aiPhotoObjectUrl);aiPhotoObjectUrl=null}preview.innerHTML='';if(aiSelectedPhoto){aiPhotoObjectUrl=URL.createObjectURL(aiSelectedPhoto);const img=document.createElement('img');img.src=aiPhotoObjectUrl;img.alt='Preview foto makanan';const name=document.createElement('span');name.textContent=aiSelectedPhoto.name;const remove=document.createElement('button');remove.type='button';remove.className='btn soft';remove.textContent='Hapus foto';remove.addEventListener('click',()=>{$('aiPhoto').value='';aiSelectedPhoto=null;preview.hidden=true;preview.innerHTML='';if(aiPhotoObjectUrl){URL.revokeObjectURL(aiPhotoObjectUrl);aiPhotoObjectUrl=null}});preview.append(img,name,remove);preview.hidden=false}else preview.hidden=true});
 $('aiAnalyzeForm').addEventListener('submit',async e=>{e.preventDefault();if(aiBusy)return;const description=$('aiDescription').value.trim(),file=aiSelectedPhoto;if(!description){$('aiDescription').focus();aiStatus.textContent='Deskripsi makanan wajib diisi.';return}if(!currentUser){notify('Login dulu untuk memakai AI Food Analyzer.');return}aiBusy=true;$('aiAnalyze').disabled=true;aiStatus.textContent='AI sedang menganalisis makanan…';aiClearResult();try{const image=await aiPhotoPayload(file);const p=latestPhysical();const today=sums(localISO());const context={weightKg:p?.weight||null,bmr:p?.bmr||null,tdee:p?.tdee||null,dailyTarget:p?Math.max(0,p.tdee-750):null,todayCalories:today.incoming,todayDate:localISO()};const {data,error}=await sb.functions.invoke('ai-calorie-chat',{body:{sessionId:null,message:description,image,context}});if(error)throw error;if(data?.error)throw Error(data.error);aiShowResult(data);aiStatus.textContent=data.note||'Periksa estimasi sebelum menyimpan.'}catch(err){aiStatus.textContent=err.message||'Gagal menghubungi AI. Coba lagi.'}finally{aiBusy=false;$('aiAnalyze').disabled=false}});
