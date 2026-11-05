@@ -221,10 +221,7 @@ async function loadCloudData(user){
    cloudRequest(sb.from('daily_tdee').select('*').eq('user_id',user.id)),
    cloudRequest(sb.from('profiles').select('*').eq('id',user.id).maybeSingle())
   ]);
-  state.logs=logs.map(x=>{
-   let meta={};try{meta=x.notes?JSON.parse(x.notes):{}}catch(e){}
-   return{id:x.id,date:x.log_date,name:x.item_name,type:x.entry_type==='exercise'?'out':'in',calories:Number(x.calories||0),createdAt:new Date(x.created_at||x.log_date).getTime()};
-  });
+  state.logs=logs.map(x=>({id:x.id,date:x.log_date,name:x.item_name,type:x.entry_type==='exercise'?'out':'in',calories:Number(x.calories||0),createdAt:new Date(x.created_at||x.log_date).getTime()}));
   state.riwayatFisik=weights.map(x=>{
    let saved={};try{saved=x.notes?JSON.parse(x.notes):{}}catch(e){}
    const p={id:x.id,date:x.recorded_on,weight:Number(x.weight_kg),gender:saved.gender||profiles?.sex||'male',age:Number(saved.age)||30,height:Number(saved.height||profiles?.height_cm||170),activity:Number(saved.activity)||1.2,bmr:Number(saved.bmr)||0,tdee:Number(saved.tdee)||0,ideal:Number(saved.ideal)||0,createdAt:new Date(x.created_at||x.recorded_on).getTime()};
