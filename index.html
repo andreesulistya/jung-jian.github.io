@@ -213,7 +213,7 @@ $('chooseManual').addEventListener('click',()=>{hideAddChoices();resetLogForm();
 $('chooseAI').addEventListener('click',()=>{hideAddChoices();openOverlay(aiComingSoonModal)});
 $('aiComingSoonClose').addEventListener('click',()=>closeOverlay(aiComingSoonModal));
 [logModal,addChoiceModal,aiComingSoonModal,$('activityIntroModal')].forEach(el=>el.addEventListener('click',e=>{if(e.target===el){if(el===logModal)resetLogForm();if(el===addChoiceModal)hideAddChoices();else if(el===$('activityIntroModal'))finishActivityIntro(false);else closeOverlay(el)}}));
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){[logModal,addChoiceModal,aiComingSoonModal,$('activityIntroModal'),physicalModal].forEach(el=>{if(el.classList.contains('open')){if(el===logModal)resetLogForm();if(el===addChoiceModal)hideAddChoices();else if(el===physicalModal){if(!onboardingRequired)closePhysicalForm()}else closeOverlay(el)}})}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){[logModal,addChoiceModal,aiComingSoonModal,$('activityIntroModal'),physicalModal].forEach(el=>{if(el.classList.contains('open')){if(el===logModal)resetLogForm();if(el===addChoiceModal)hideAddChoices();else if(el===physicalModal){if(!onboardingRequired)closePhysicalForm()}else if(el===$('activityIntroModal'))finishActivityIntro(false);else closeOverlay(el)}})}});
 
 
 let foodPhotoData=null,foodPhotoMime=null;
