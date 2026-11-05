@@ -1,4 +1,4 @@
-const CACHE_NAME = 'defisit-tracker-shell-v3';
+const CACHE_NAME = 'defisit-tracker-shell-v4';
 const APP_BASE = '/jung-jian.github.io/';
 const APP_SHELL = [
   APP_BASE,
