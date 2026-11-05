@@ -95,7 +95,46 @@ let logPage=1,recapPage=1,physicalPage=1,logTypeTab="in",editingLog=null,editing
 function persist(){if(!currentUser){notify('Login diperlukan untuk menyimpan data.');return}render();if(authReady)return queueCloudSync()}
 function notify(msg){const el=$('toast');el.textContent=msg;el.style.display='block';clearTimeout(window._toastTimer);window._toastTimer=setTimeout(()=>el.style.display='none',3200)}
 function dateLabel(iso){if(!iso)return'—';const [y,m,d]=iso.split('-').map(Number);return new Date(y,m-1,d).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'})}
-function sums(date){const rows=state.logs.filter(x=>x.date===date);const incoming=rows.filter(x=>x.type==='in').reduce((a,x)=>a+Number(x.calories),0);const outgoing=rows.filter(x=>x.type==='out').reduce((a,x)=>a+Number(x.calories),0);return{rows,incoming,outgoing,allOutgoing:outgoing}}function status(net){return net>0?'Surplus':net<0?'Defisit':'Seimbang'}
+function sums(date){const rows=state.logs.filter(x=>x.date===date);const incoming=rows.filter(x=>x.type==='in').reduce((a,x)=>a+Number(x.calories),0);const outgoing=rows.filter(x=>x.type==='out').reduce((a,x)=>a+Number(x.calories),0);return{rows,incoming,outgoing,allOutgoing:outgoing}}function getSurplusRecoveryData(){
+ const dates=[...new Set(state.logs.map(x=>x.date))].sort((a,b)=>a.localeCompare(b));
+ let original=0,remaining=0,compensated=0;
+ const activities=[];
+ for(const date of dates){
+  const day=sums(date),dayTdee=tdeeForDate(date);
+  if(dayTdee>0){const dailySurplus=Math.max(0,day.incoming-dayTdee);if(dailySurplus>0){original+=dailySurplus;remaining+=dailySurplus}}
+  const extras=state.logs.filter(x=>x.date===date&&x.type==='out'&&x.isExtra===true).sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+  for(const activity of extras){const calories=Math.max(0,Number(activity.calories)||0);const applied=Math.min(remaining,calories);remaining=Math.max(0,remaining-applied);compensated+=applied;activities.push({...activity,recoveryApplied:applied})}
+ }
+ return{original,remaining,compensated,activities};
+}
+function renderDashboardSurplus(){
+ const data=getSurplusRecoveryData(),panel=$('dashboardSurplusPanel');
+ panel.hidden=data.original<=0;
+ if(data.original<=0)return;
+ const pct=Math.min(100,Math.round(data.compensated/data.original*100));
+ $('dashboardSurplusEffort').textContent=fmt(data.compensated)+' kcal';
+ $('dashboardSurplusTotal').textContent=fmt(data.original)+' kcal';
+ $('dashboardSurplusProgressFill').style.width=pct+'%';
+ $('dashboardSurplusProgress').setAttribute('aria-valuenow',String(pct));
+ $('dashboardSurplusStatus').textContent=data.remaining>0?'Recovery berjalan':'Surplus lunas';
+ $('dashboardSurplusStatus').style.background=data.remaining>0?'#fff0d9':'#e5f4e7';
+ $('dashboardSurplusStatus').style.color=data.remaining>0?'#926222':'#287544';
+}
+function renderSurplusRecovery(){
+ const data=getSurplusRecoveryData(),pct=data.original>0?Math.min(100,Math.round(data.compensated/data.original*100)):0;
+ $('surplusGross').textContent=fmt(data.original)+' kcal';$('surplusActivity').textContent=fmt(data.compensated)+' kcal';$('surplusRemaining').textContent=fmt(data.remaining)+' kcal';
+ $('surplusProgressLabel').textContent=pct+'%';$('surplusProgressFill').style.width=pct+'%';$('surplusProgress').setAttribute('aria-valuenow',String(pct));
+ $('surplusRecoveryStatus').textContent=data.remaining>0?'Recovery berjalan':data.original>0?'Surplus lunas':'Belum ada surplus';
+ $('surplusRecoveryStatus').style.background=data.remaining>0?'#fff0d9':data.original>0?'#e5f4e7':'var(--sage)';
+ $('surplusRecoveryStatus').style.color=data.remaining>0?'#926222':data.original>0?'#287544':'var(--green)';
+ $('surplusRemaining').style.color=data.remaining>0?'var(--red)':'#28a745';
+ $('surplusRecoveryNote').textContent=data.remaining>0?'Sisa surplus tetap dibawa ke hari berikutnya. Surplus baru akan menambah saldo, sedangkan hanya olahraga ekstra yang menguranginya. Defisit asupan harian biasa tidak dihitung sebagai recovery.':data.original>0?'Seluruh surplus sudah dipulihkan. Menu ini tetap tersedia dan akan mencatat surplus baru jika terjadi lagi.':'Belum ada surplus yang perlu dipulihkan. Jika suatu hari asupan melebihi TDEE, surplus akan tercatat di sini.';
+ $('surplusActivityCount').textContent=data.activities.length+' aktivitas';
+ const rows=[...data.activities].sort((a,b)=>b.date.localeCompare(a.date)||(b.createdAt||0)-(a.createdAt||0));
+ $('surplusActivityList').innerHTML=rows.length?rows.map(x=>'<div class="surplus-activity-row"><div class="surplus-activity-icon">↗</div><div class="surplus-activity-copy"><strong>'+escapeHTML(x.name)+'</strong><small>'+dateLabel(x.date)+'</small></div><div class="surplus-activity-value"><strong>'+fmt(x.calories)+' kcal</strong><small>'+fmt(x.recoveryApplied)+' kcal recovered</small></div></div>').join(''):'<div class="empty">Belum ada olahraga ekstra yang dicatat. Tandai aktivitas sebagai olahraga ekstra saat mencatatnya di Catat Kalori.</div>';
+}
+
+function status(net){return net>0?'Surplus':net<0?'Defisit':'Seimbang'}
 function statusClass(net){return net>0?'positive':net<0?'negative':'zero'}
 function activityType(type){return type==='in'?'<span class="type in">Masuk</span>':'<span class="type out">Keluar</span>'}
 function emptyRow(cols,msg){return '<tr><td colspan="'+cols+'" class="empty">'+msg+'</td></tr>'}
