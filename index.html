@@ -135,8 +135,8 @@ function sums(date){const rows=state.logs.filter(x=>x.date===date);const incomin
 }
 function renderDashboardSurplus(){
  const data=getSurplusRecoveryData(),panel=$('dashboardSurplusPanel');
- panel.hidden=data.original<=0;
- if(data.original<=0)return;
+ panel.hidden=data.remaining<=0;
+ if(data.remaining<=0)return;
  const pct=Math.min(100,Math.round(data.compensated/data.original*100));
  $('dashboardSurplusEffort').textContent=fmt(data.compensated)+' kcal';
  $('dashboardSurplusTotal').textContent=fmt(data.original)+' kcal';
