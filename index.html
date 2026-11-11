@@ -272,7 +272,7 @@ function showAddChoices(){openOverlay(addChoiceModal);logFab.classList.add('menu
 function hideAddChoices(){closeOverlay(addChoiceModal);logFab.classList.remove('menu-open');logFab.setAttribute('aria-label','Tambah catatan kalori')}
 logFab.addEventListener('click',()=>{if(logModal.classList.contains('open')){resetLogForm();closeLogModal();return}if(addChoiceModal.classList.contains('open')){hideAddChoices();return}showAddChoices()});
 $('chooseManual').addEventListener('click',()=>{hideAddChoices();resetLogForm();openLogModal()});
-$('chooseAI').addEventListener('click',()=>{hideAddChoices();openOverlay(aiComingSoonModal)});
+$('chooseAI').addEventListener('click',()=>{hideAddChoices();navigate('assistant')});
 $('chooseActivity').addEventListener('click',()=>{hideAddChoices();openOverlay(activityComingSoonModal)});
 $('aiComingSoonClose').addEventListener('click',()=>closeOverlay(aiComingSoonModal));
 $('activityComingSoonClose').addEventListener('click',()=>closeOverlay(activityComingSoonModal));
